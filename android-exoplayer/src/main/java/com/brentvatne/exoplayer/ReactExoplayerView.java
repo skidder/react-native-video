@@ -31,6 +31,7 @@ import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
@@ -556,7 +557,7 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     private MediaSource buildTextSource(String title, Uri uri, String mimeType, String language) {
-        Format textFormat = Format.createTextSampleFormat(title, mimeType, Format.NO_VALUE, language);
+        Format textFormat = (new Format.Builder()).setId(title).setSampleMimeType(mimeType).setSelectionFlags(Format.NO_VALUE).setLanguage(language).build();
         return new SingleSampleMediaSource.Factory(mediaDataSourceFactory)
                 .createMediaSource(uri, textFormat, C.TIME_UNSET);
     }
@@ -906,7 +907,7 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     @Override
-    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+    public void onTimelineChanged(Timeline timeline, int reason) {
         // Do nothing.
     }
 
@@ -937,11 +938,18 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     @Override
-    public void onPlayerError(ExoPlaybackException e) {
-        String errorString = "ExoPlaybackException type : " + e.type;
+    public void onPlayerError(PlaybackException e) {
         Exception ex = e;
-        if (e.type == ExoPlaybackException.TYPE_RENDERER) {
-            Exception cause = e.getRendererException();
+        if (false == (e instanceof ExoPlaybackException)) {
+            Log.e("PlaybackException with unrecognized class type", e.toString());
+            eventEmitter.error("PlaybackException with unrecognized class type", ex);
+            return;
+        }
+
+        ExoPlaybackException exoException = (ExoPlaybackException) e;
+        String errorString = "PlaybackException type : " + exoException.type;
+        if (exoException.type == ExoPlaybackException.TYPE_RENDERER) {
+            Exception cause = exoException.getRendererException();
             if (cause instanceof MediaCodecRenderer.DecoderInitializationException) {
                 // Special case for decoder initialization failures.
                 MediaCodecRenderer.DecoderInitializationException decoderInitializationException =
@@ -961,13 +969,12 @@ class ReactExoplayerView extends FrameLayout implements
                             decoderInitializationException.codecInfo.name);
                 }
             }
-        }
-        else if (e.type == ExoPlaybackException.TYPE_SOURCE) {
+        } else if (exoException.type == ExoPlaybackException.TYPE_SOURCE) {
             errorString = getResources().getString(R.string.unrecognized_media_format);
         }
         eventEmitter.error(errorString, ex);
         playerNeedsSource = true;
-        if (isBehindLiveWindow(e)) {
+        if (isBehindLiveWindow(exoException)) {
             clearResumePosition();
             initializePlayer();
         } else {
