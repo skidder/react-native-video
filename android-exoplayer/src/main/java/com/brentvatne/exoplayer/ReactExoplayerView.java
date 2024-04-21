@@ -31,6 +31,7 @@ import com.google.android.exoplayer2.DefaultLoadControl;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackException;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
@@ -39,7 +40,6 @@ import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.drm.DefaultDrmSessionManager;
 import com.google.android.exoplayer2.drm.DrmSessionEventListener;
 import com.google.android.exoplayer2.drm.DrmSessionManager;
-import com.google.android.exoplayer2.drm.FrameworkMediaCrypto;
 import com.google.android.exoplayer2.drm.FrameworkMediaDrm;
 import com.google.android.exoplayer2.drm.HttpMediaDrmCallback;
 import com.google.android.exoplayer2.drm.UnsupportedDrmException;
@@ -416,7 +416,6 @@ class ReactExoplayerView extends FrameLayout implements
                                 .setLoadControl(defaultLoadControl)
                                 .build();
                     player.addListener(self);
-                    player.addMetadataOutput(self);
                     exoPlayerView.setPlayer(player);
                     audioBecomingNoisyReceiver.setListener(self);
                     bandwidthMeter.addEventListener(new Handler(), self);
@@ -557,16 +556,25 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     private MediaSource buildTextSource(String title, Uri uri, String mimeType, String language) {
-        Format textFormat = (new Format.Builder()).setId(title).setSampleMimeType(mimeType).setSelectionFlags(Format.NO_VALUE).setLanguage(language).build();
+        MediaItem.SubtitleConfiguration subtitleConfig = new MediaItem.SubtitleConfiguration.Builder(uri)
+            .setMimeType(mimeType)
+            .setLanguage(language)
+            .setSelectionFlags(Format.NO_VALUE)
+            .setRoleFlags(Format.NO_VALUE)
+            .setLabel(title)
+            .build();
+
+        // Create the media source with the MediaItem
         return new SingleSampleMediaSource.Factory(mediaDataSourceFactory)
-                .createMediaSource(uri, textFormat, C.TIME_UNSET);
+                .createMediaSource(subtitleConfig, C.TIME_UNSET);
     }
 
     private void releasePlayer() {
         if (player != null) {
             updateResumePosition();
             player.release();
-            player.removeMetadataOutput(this);
+            ReactExoplayerView self = this;
+            player.removeListener(self);
             trackSelector = null;
             player = null;
         }
