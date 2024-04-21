@@ -83,7 +83,7 @@ import java.util.Map;
 @SuppressLint("ViewConstructor")
 class ReactExoplayerView extends FrameLayout implements
         LifecycleEventListener,
-        Player.EventListener,
+        Player.Listener,
         BandwidthMeter.EventListener,
         BecomingNoisyListener,
         AudioManager.OnAudioFocusChangeListener,
@@ -105,7 +105,7 @@ class ReactExoplayerView extends FrameLayout implements
     private final DefaultBandwidthMeter bandwidthMeter;
     private PlayerControlView playerControlView;
     private View playPauseControlContainer;
-    private Player.EventListener eventListener;
+    private Player.Listener eventListener;
 
     private ExoPlayerView exoPlayerView;
 
@@ -348,9 +348,9 @@ class ReactExoplayerView extends FrameLayout implements
         });
 
         // Invoking onPlayerStateChanged event for Player
-        eventListener = new Player.EventListener() {
+        eventListener = new Player.Listener() {
             @Override
-            public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+            public void onPlaybackStateChanged(@Player.State int playbackState) {
                 reLayout(playPauseControlContainer);
                 //Remove this eventListener once its executed. since UI will work fine once after the reLayout is done
                 player.removeListener(eventListener);
@@ -495,6 +495,7 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     private MediaSource buildMediaSource(Uri uri, String overrideExtension, DrmSessionManager drmSessionManager) {
+        MediaItem mediaItem = (new MediaItem.Builder()).setUri(uri).build();
         int type = Util.inferContentType(!TextUtils.isEmpty(overrideExtension) ? "." + overrideExtension
                 : uri.getLastPathSegment());
         switch (type) {
@@ -502,32 +503,40 @@ class ReactExoplayerView extends FrameLayout implements
                 return new SsMediaSource.Factory(
                         new DefaultSsChunkSource.Factory(mediaDataSourceFactory),
                         buildDataSourceFactory(false)
-                ).setDrmSessionManager(drmSessionManager)
+                ).setDrmSessionManagerProvider((unusedMediaItem) -> {
+                            return drmSessionManager;
+                })
                  .setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                ).createMediaSource(uri);
+                ).createMediaSource(mediaItem);
             case C.TYPE_DASH:
                 return new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(mediaDataSourceFactory),
                         buildDataSourceFactory(false)
-                ).setDrmSessionManager(drmSessionManager)
+                ).setDrmSessionManagerProvider((unusedMediaItem) -> {
+                            return drmSessionManager;
+                        })
                  .setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                ).createMediaSource(uri);
+                 ).createMediaSource(mediaItem);
             case C.TYPE_HLS:
                 return new HlsMediaSource.Factory(
                         mediaDataSourceFactory
-                ).setDrmSessionManager(drmSessionManager)
+                ).setDrmSessionManagerProvider((unusedMediaItem) -> {
+                            return drmSessionManager;
+                        })
                  .setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                ).createMediaSource(uri);
+                 ).createMediaSource(mediaItem);
             case C.TYPE_OTHER:
                 return new ProgressiveMediaSource.Factory(
                         mediaDataSourceFactory
-                ).setDrmSessionManager(drmSessionManager)
+                ).setDrmSessionManagerProvider((unusedMediaItem) -> {
+                            return drmSessionManager;
+                        })
                  .setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                ).createMediaSource(uri);
+                 ).createMediaSource(mediaItem);
             default: {
                 throw new IllegalStateException("Unsupported type: " + type);
             }
