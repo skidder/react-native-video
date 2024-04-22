@@ -15,6 +15,8 @@ import android.view.accessibility.CaptioningManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 
+import androidx.annotation.NonNull;
+
 import com.brentvatne.react.R;
 import com.brentvatne.receiver.AudioBecomingNoisyReceiver;
 import com.brentvatne.receiver.BecomingNoisyListener;
@@ -37,12 +39,7 @@ import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Timeline;
-import com.google.android.exoplayer2.drm.DefaultDrmSessionManager;
 import com.google.android.exoplayer2.drm.DrmSessionEventListener;
-import com.google.android.exoplayer2.drm.DrmSessionManager;
-import com.google.android.exoplayer2.drm.FrameworkMediaDrm;
-import com.google.android.exoplayer2.drm.HttpMediaDrmCallback;
-import com.google.android.exoplayer2.drm.UnsupportedDrmException;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.metadata.Metadata;
@@ -64,7 +61,6 @@ import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
 import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
-import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.ui.PlayerControlView;
 import com.google.android.exoplayer2.upstream.BandwidthMeter;
 import com.google.android.exoplayer2.upstream.DataSource;
@@ -128,7 +124,7 @@ class ReactExoplayerView extends FrameLayout implements
     private float audioVolume = 1f;
     private int minLoadRetryCount = 3;
     private int maxBitRate = 0;
-    private long seekTime = C.TIME_UNSET;
+    private boolean isUsingContentResolution = false;
 
     private int minBufferMs = DefaultLoadControl.DEFAULT_MIN_BUFFER_MS;
     private int maxBufferMs = DefaultLoadControl.DEFAULT_MAX_BUFFER_MS;
@@ -407,7 +403,7 @@ class ReactExoplayerView extends FrameLayout implements
                     defaultLoadControlBuilder.setBufferDurationsMs(minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs);
                     defaultLoadControlBuilder.setTargetBufferBytes(-1);
                     defaultLoadControlBuilder.setPrioritizeTimeOverSizeThresholds(true);
-                    DefaultLoadControl defaultLoadControl = defaultLoadControlBuilder.createDefaultLoadControl();
+                    DefaultLoadControl defaultLoadControl = defaultLoadControlBuilder.build();
                     DefaultRenderersFactory renderersFactory =
                             new DefaultRenderersFactory(getContext())
                                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF);
@@ -462,23 +458,6 @@ class ReactExoplayerView extends FrameLayout implements
         }, 1);
     }
 
-    private DrmSessionManager buildDrmSessionManager(UUID uuid,
-                                                                           String licenseUrl, String[] keyRequestPropertiesArray) throws UnsupportedDrmException {
-        if (Util.SDK_INT < 18) {
-            return null;
-        }
-        HttpMediaDrmCallback drmCallback = new HttpMediaDrmCallback(licenseUrl,
-                buildHttpDataSourceFactory(false));
-        if (keyRequestPropertiesArray != null) {
-            for (int i = 0; i < keyRequestPropertiesArray.length - 1; i += 2) {
-                drmCallback.setKeyRequestProperty(keyRequestPropertiesArray[i],
-                        keyRequestPropertiesArray[i + 1]);
-            }
-        }
-        return new DefaultDrmSessionManager(uuid,
-                FrameworkMediaDrm.newInstance(uuid), drmCallback, null, false, 3);
-    }
-
     private MediaSource buildMediaSource(Uri uri, String overrideExtension) {
         MediaItem mediaItem = (new MediaItem.Builder()).setUri(uri).build();
         int type = Util.inferContentType(!TextUtils.isEmpty(overrideExtension) ? "." + overrideExtension
@@ -497,19 +476,19 @@ class ReactExoplayerView extends FrameLayout implements
                         buildDataSourceFactory(false)
                 ).setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                 ).createMediaSource(mediaItem);
+                ).createMediaSource(mediaItem);
             case C.TYPE_HLS:
                 return new HlsMediaSource.Factory(
                         mediaDataSourceFactory
                 ).setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                 ).createMediaSource(mediaItem);
+                ).createMediaSource(mediaItem);
             case C.TYPE_OTHER:
                 return new ProgressiveMediaSource.Factory(
                         mediaDataSourceFactory
                 ).setLoadErrorHandlingPolicy(
                         config.buildLoadErrorHandlingPolicy(minLoadRetryCount)
-                 ).createMediaSource(mediaItem);
+                ).createMediaSource(mediaItem);
             default: {
                 throw new IllegalStateException("Unsupported type: " + type);
             }
@@ -881,12 +860,24 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     @Override
-    public void onPositionDiscontinuity(int reason) {
+    public void onPositionDiscontinuity(@NonNull Player.PositionInfo oldPosition, @NonNull Player.PositionInfo newPosition, @Player.DiscontinuityReason int reason) {
+        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+            eventEmitter.seek(player.getCurrentPosition(), newPosition.positionMs % 1000); // time are in seconds /°\
+            if (isUsingContentResolution) {
+                // We need to update the selected track to make sure that it still matches user selection if track list has changed in this period
+                setSelectedTrack(C.TRACK_TYPE_VIDEO, videoTrackType, videoTrackValue);
+            }
+        }
+
         if (playerNeedsSource) {
             // This will only occur if the user has performed a seek whilst in the error state. Update the
             // resume position so that if the user then retries, playback will resume from the position to
             // which they seeked.
             updateResumePosition();
+        }
+        if (isUsingContentResolution) {
+            // Discontinuity events might have a different track list so we update the selected track
+            setSelectedTrack(C.TRACK_TYPE_VIDEO, videoTrackType, videoTrackValue);
         }
         // When repeat is turned on, reaching the end of the video will not cause a state change
         // so we need to explicitly detect it.
@@ -899,12 +890,6 @@ class ReactExoplayerView extends FrameLayout implements
     @Override
     public void onTimelineChanged(Timeline timeline, int reason) {
         // Do nothing.
-    }
-
-    @Override
-    public void onSeekProcessed() {
-        eventEmitter.seek(player.getCurrentPosition(), seekTime);
-        seekTime = C.TIME_UNSET;
     }
 
     @Override
@@ -930,7 +915,7 @@ class ReactExoplayerView extends FrameLayout implements
     @Override
     public void onPlayerError(PlaybackException e) {
         Exception ex = e;
-        if (false == (e instanceof ExoPlaybackException)) {
+        if (!(e instanceof ExoPlaybackException)) {
             Log.e("PlaybackException with unrecognized class type", e.toString());
             eventEmitter.error("PlaybackException with unrecognized class type", ex);
             return;
@@ -1026,7 +1011,8 @@ class ReactExoplayerView extends FrameLayout implements
 
     public void clearSrc() {
         if (srcUri != null) {
-            player.stop(true);
+            player.stop();
+            player.clearMediaItems();
             this.srcUri = null;
             this.extension = null;
             this.requestHeaders = null;
@@ -1252,7 +1238,6 @@ class ReactExoplayerView extends FrameLayout implements
 
     public void seekTo(long positionMs) {
         if (player != null) {
-            seekTime = positionMs;
             player.seekTo(positionMs);
         }
     }
