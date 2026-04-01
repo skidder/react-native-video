@@ -14,6 +14,7 @@ import com.google.android.exoplayer2.util.Util;
 import okhttp3.JavaNetCookieJar;
 import okhttp3.OkHttpClient;
 import java.util.Map;
+import java.util.function.Function;
 
 public class DataSourceUtil {
 
@@ -23,6 +24,7 @@ public class DataSourceUtil {
     private static DataSource.Factory rawDataSourceFactory = null;
     private static DataSource.Factory defaultDataSourceFactory = null;
     private static HttpDataSource.Factory defaultHttpDataSourceFactory = null;
+    private static Function<String, DataSource.Factory> httpEngineFactoryResolver = null;
     private static String userAgent = null;
 
     public static void setUserAgent(String userAgent) {
@@ -47,6 +49,20 @@ public class DataSourceUtil {
         DataSourceUtil.rawDataSourceFactory = factory;
     }
 
+
+    public static void setHttpEngineFactoryResolver(Function<String, DataSource.Factory> resolver) {
+        httpEngineFactoryResolver = resolver;
+    }
+
+    public static DataSource.Factory getDataSourceFactory(ReactContext context, DefaultBandwidthMeter bandwidthMeter, Map<String, String> requestHeaders, String httpEngine) {
+        if (httpEngine != null && httpEngineFactoryResolver != null) {
+            DataSource.Factory factory = httpEngineFactoryResolver.apply(httpEngine);
+            if (factory != null) {
+                return factory;
+            }
+        }
+        return getDefaultDataSourceFactory(context, bandwidthMeter, requestHeaders);
+    }
 
     public static DataSource.Factory getDefaultDataSourceFactory(ReactContext context, DefaultBandwidthMeter bandwidthMeter, Map<String, String> requestHeaders) {
         if (defaultDataSourceFactory == null || (requestHeaders != null && !requestHeaders.isEmpty())) {

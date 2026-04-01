@@ -182,6 +182,11 @@ public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerVi
         }
     }
 
+    @ReactProp(name = "httpEngine")
+    public void setHttpEngine(final ReactExoplayerView videoView, @Nullable final String httpEngine) {
+        videoView.setHttpEngine(httpEngine);
+    }
+
     @ReactProp(name = PROP_RESIZE_MODE)
     public void setResizeMode(final ReactExoplayerView videoView, final String resizeModeOrdinalString) {
         videoView.setResizeModeModifier(convertToIntDef(resizeModeOrdinalString));

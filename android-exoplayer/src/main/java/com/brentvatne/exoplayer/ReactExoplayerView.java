@@ -149,6 +149,7 @@ class ReactExoplayerView extends FrameLayout implements
     private float mProgressUpdateInterval = 250.0f;
     private boolean playInBackground = false;
     private Map<String, String> requestHeaders;
+    private String httpEngine;
     private boolean mReportBandwidth = false;
     private UUID drmUUID = null;
     private String drmLicenseUrl = null;
@@ -647,8 +648,8 @@ class ReactExoplayerView extends FrameLayout implements
      * @return A new DataSource factory.
      */
     private DataSource.Factory buildDataSourceFactory(boolean useBandwidthMeter) {
-        return DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext,
-                useBandwidthMeter ? bandwidthMeter : null, requestHeaders);
+        return DataSourceUtil.getDataSourceFactory(this.themedReactContext,
+                useBandwidthMeter ? bandwidthMeter : null, requestHeaders, httpEngine);
     }
 
     /**
@@ -1039,13 +1040,17 @@ class ReactExoplayerView extends FrameLayout implements
             this.extension = extension;
             this.requestHeaders = headers;
             this.mediaDataSourceFactory =
-                    DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext, bandwidthMeter,
-                            this.requestHeaders);
+                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            this.requestHeaders, this.httpEngine);
 
             if (!isSourceEqual) {
                 reloadSource();
             }
         }
+    }
+
+    public void setHttpEngine(String httpEngine) {
+        this.httpEngine = httpEngine;
     }
 
     public void clearSrc() {
