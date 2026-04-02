@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.content.Context;
 import android.media.AudioManager;
 import android.net.Uri;
+
+import java.util.Objects;
 import android.os.Handler;
 import android.os.Message;
 import android.text.TextUtils;
@@ -1050,7 +1052,14 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     public void setHttpEngine(String httpEngine) {
+        boolean changed = !Objects.equals(this.httpEngine, httpEngine);
         this.httpEngine = httpEngine;
+        if (changed && srcUri != null) {
+            this.mediaDataSourceFactory =
+                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            this.requestHeaders, this.httpEngine);
+            reloadSource();
+        }
     }
 
     public void clearSrc() {
